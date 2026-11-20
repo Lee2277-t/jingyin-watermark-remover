@@ -29,6 +29,7 @@ __pycache__/
 !/work/qa/_test_options.py
 !/work/qa/_test_photo_mode.py
 !/work/qa/_test_region_limit.py
+!/work/qa/_test_rerun.py
 !/work/qa/_test_robustness.py
 !/work/qa/_test_video_corner.py
 !/work/qa/_test_video_detect.py

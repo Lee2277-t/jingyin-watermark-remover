@@ -2018,12 +2018,21 @@
     compare.className = 'mini-link';
     compare.textContent = '对比查看';
     compare.addEventListener('click', () => openViewer(result, results));
+    const rerun = document.createElement('button');
+    rerun.type = 'button';
+    rerun.className = 'mini-link';
+    rerun.textContent = '重跑这份';
+    rerun.title = '用当前选框与档位重做这一份，其他文件不动';
+    rerun.addEventListener('click', (event) => {
+      event.stopPropagation();
+      rerunResult(result, rerun);
+    });
     const download = document.createElement('a');
     download.className = 'mini-link muted';
     download.href = result.download_url;
     download.textContent = '下载';
     download.setAttribute('download', result.name);
-    actions.append(compare, download);
+    actions.append(compare, rerun, download);
     info.append(actions);
 
     media.addEventListener('click', () => openViewer(result, results));
@@ -2040,7 +2049,9 @@
 
   function renderResults(job) {
     const results = job.results || [];
-    const fingerprint = results.map((result) => result.id).join(',');
+    // 尺寸与作业状态一起进指纹：单份重跑会在文件名不变的前提下换掉内容，
+    // 只看结果 id 的话卡片不会重建，用户看到的还是旧尺寸和「正在重跑…」
+    const fingerprint = `${results.map((result) => `${result.id}:${result.size}`).join(',')}|${job.status}`;
     if (el.resultGrid.dataset.fingerprint !== fingerprint) {
       el.resultGrid.dataset.fingerprint = fingerprint;
       el.resultGrid.replaceChildren(...results.map(createResultCard));
@@ -2173,6 +2184,39 @@
       state.cancelling = false;
       el.jobCancelBtn.disabled = false;
       toast(error.message || '停止失败，请重试', 'error', 4200);
+    }
+  }
+
+  async function rerunResult(result, button) {
+    const job = state.job;
+    if (!job || isJobActive()) {
+      toast('这一批还在处理，等它跑完再单独重跑', 'info');
+      return;
+    }
+    // 用「界面上这份素材现在的框」和当前档位：想改框重试的，就是这条路径
+    const item = state.items.find((entry) => entry.id === result.item_id);
+    const body = { method: state.method, video_mode: state.videoMode, motion: state.videoMotion };
+    if (item && item.regions.length) body.regions = item.regions.map((region) => Object.assign({}, region));
+    button.disabled = true;
+    button.textContent = '正在重跑…';
+    try {
+      const data = await api(
+        `/api/jobs/${encodeURIComponent(job.id)}/results/${encodeURIComponent(result.id)}/rerun`,
+        { method: 'POST', body }
+      );
+      state.job = data;
+      state.cancelling = false;
+      state.resuming = false;
+      el.jobFailedSection.hidden = true;
+      el.jobStoppedSection.hidden = true;
+      el.jobProgressSection.hidden = false;
+      renderJob(data);
+      startPolling(data.id);
+      toast(`正在重跑「${result.name}」，其他文件不动`, 'info', 4200);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = '重跑这份';
+      toast(error.message || '重跑失败，请重试', 'error', 5000);
     }
   }
 

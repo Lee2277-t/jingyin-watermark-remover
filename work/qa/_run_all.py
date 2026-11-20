@@ -99,6 +99,7 @@ MANIFEST: tuple[Entry, ...] = (
     Entry("_test_robustness.py", needs=("http",), scope=".part 原子落盘与 ZIP 完整性"),
     Entry("_test_instance.py", needs=("http",), scope="单实例判定与 runtime.json"),
     Entry("_test_region_limit.py", needs=("http",), scope="每份 16 框上限（后端 400 + 前端闸门）"),
+    Entry("_test_rerun.py", needs=("http",), scope="单份重跑：只动那一条、作废 ZIP 缓存、失败留原文件"),
     Entry("_test_photo_mode.py", needs=("http", "model"), cost="slow", scope="照片重绘 LaMa（含大框分块）"),
     # ---- 视频 ----
     Entry("_test_video_corner.py", scope="贴边路由与四条说明文案"),

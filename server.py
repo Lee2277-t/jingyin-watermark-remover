@@ -138,12 +138,15 @@ def find_item(item_id: str) -> dict | None:
 
 def public_job(job: dict) -> dict:
     with INDEX_LOCK:
+        item_by_task = {task["id"]: task.get("item_id") for task in job.get("tasks", [])}
         results = []
         for result in job.get("results", []):
             results.append(
                 {
                     "id": result["id"],
                     "task_id": result["task_id"],
+                    # 界面靠它对上「这份素材现在画面上还留着哪些框」，单份重跑要用
+                    "item_id": item_by_task.get(result["task_id"]),
                     "name": result["name"],
                     "kind": result["kind"],
                     "size": result["size"],
@@ -1104,6 +1107,178 @@ def find_result(job: dict, result_id: str) -> dict:
     abort(404)
 
 
+def _find_result_or_none(job: dict, result_id: str) -> dict | None:
+    """同 find_result，但找不到时返回 None——单份重跑要自己决定回什么文案。"""
+    with INDEX_LOCK:
+        for result in job.get("results", []):
+            if result["id"] == result_id:
+                return result
+    return None
+
+
+def _rerun_one(job_id: str, result_id: str) -> None:
+    """只重跑一条成品：把新结果覆盖到同一个文件名上，同批其他份数一个字节都不动。
+
+    先写 `_rerun` 临时名、成功后才 `os.replace` 覆盖原成品——重跑失败或中途停止时，
+    用户手上原来那份还能用，不会留下半截文件。成品变了就把这批的 ZIP 缓存删掉，
+    否则下载到的还是旧包（ZIP 复用只比条目名，名字没变就看不出来）。
+    """
+    with INDEX_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        result = _find_result_or_none(job, result_id)
+        if result is None:
+            return
+        task = next((entry for entry in job["tasks"] if entry["id"] == result["task_id"]), None)
+        if task is None:
+            return
+        output_path = Path(result["file_path"])
+        preview_path = Path(result["preview_path"])
+        # 视频的预览就是成品本身，两份临时名会是同一个，别重复替换
+        same_preview = preview_path == output_path
+        temp_output = output_path.with_name(f"{output_path.stem}_rerun{output_path.suffix}")
+        temp_preview = (
+            temp_output
+            if same_preview
+            else preview_path.with_name(f"{preview_path.stem}_rerun{preview_path.suffix}")
+        )
+        cancel_event = job.get("cancel_event")
+        item = batch_runner.BatchItem(
+            item_id=task["id"],
+            kind=task["kind"],
+            input_path=Path(task["source_path"]),
+            output_path=temp_output,
+            regions=task["regions"],
+            method=task["method"],
+            video_mode=options.normalize_video_mode(task.get("video_mode")),
+            motion=options.normalize_motion(task.get("motion")),
+            width=task["width"],
+            height=task["height"],
+            preview_path=temp_preview,
+        )
+
+    def on_event(_entry: batch_runner.BatchItem, phase: str, value: float) -> None:
+        with INDEX_LOCK:
+            current = JOBS.get(job_id)
+            if not current:
+                return
+            if phase == "start":
+                current["message"] = f"正在重跑：{task['name']}"
+                current["progress"] = 0.01
+            elif phase == "tick":
+                current["progress"] = min(0.995, float(value))
+
+    app.logger.info("Rerun %s started for %s", job_id, task["name"])
+    batch_runner.run_batch(
+        [item],
+        workers=1,
+        on_event=on_event,
+        should_stop=(cancel_event.is_set if cancel_event is not None else None),
+    )
+
+    with INDEX_LOCK:
+        current = JOBS.get(job_id)
+        if not current:
+            return
+        current["progress"] = 1.0
+        current["finished_at"] = time.time()
+        if item.cancelled:
+            task["status"] = "cancelled"
+            task["error"] = None
+            current["status"] = "cancelled"
+            current["message"] = f"已停止重跑：{task['name']}；原来的成品还在"
+        elif item.error is not None:
+            task["status"] = "error"
+            task["error"] = user_error(item.error)
+            current["status"] = "failed" if not current.get("results") else "done"
+            current["message"] = f"重跑失败：{task['name']}（{task['error']}）；原来的成品还在"
+            app.logger.error("Rerun failed for %s: %s", task["name"], item.trace)
+        else:
+            try:
+                os.replace(temp_output, output_path)
+                if not same_preview:
+                    os.replace(temp_preview, preview_path)
+            except OSError as exc:
+                task["status"] = "error"
+                task["error"] = user_error(exc)
+                current["status"] = "failed" if not current.get("results") else "done"
+                current["message"] = f"重跑完成但覆盖原文件失败：{user_error(exc)}"
+                app.logger.error("Rerun replace failed for %s: %s", task["name"], exc)
+            else:
+                task["status"] = "done"
+                task["error"] = None
+                result["size"] = output_path.stat().st_size
+                result["note"] = item.result["note"]
+                current["status"] = "done"
+                current["message"] = f"已重跑：{task['name']}"
+                app.logger.info("Rerun %s -> %s", task["name"], output_path)
+        # 不论成没成，先把这批的 ZIP 缓存作废：成功时它已经过期，失败时下次下载会重建
+        try:
+            (ZIP_DIR / f"{job_id}.zip").unlink()
+        except OSError:
+            pass
+        for leftover in (temp_output, temp_preview):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass
+
+
+@app.post("/api/jobs/<job_id>/results/<result_id>/rerun")
+def rerun_result(job_id: str, result_id: str):
+    """单独重跑这一份：用界面当前的选框与档位，覆盖同一个成品文件。
+
+    和「继续处理剩下的 N 项」分工不同：续跑补的是没做完的，这里重做的是**已经做完、
+    但用户想换框或换档位再试一次**的那一份。
+    """
+    job = get_job(job_id)
+    data = request.get_json(silent=True) or {}
+    method, video_mode, motion = parse_job_options(data)
+    if method == options.PHOTO and not photo_inpaint.available():
+        return jsonify({"error": photo_inpaint.unavailable_reason() or "照片重绘不可用"}), 400
+    with INDEX_LOCK:
+        if job["status"] in ("queued", "running"):
+            return jsonify({"error": "这一批还在处理，等它跑完再单独重跑"}), 409
+        result = _find_result_or_none(job, result_id)
+        if result is None:
+            return jsonify({"error": "这条成品已经不在了，请刷新后再试"}), 404
+        task = next((entry for entry in job["tasks"] if entry["id"] == result["task_id"]), None)
+        if task is None:
+            return jsonify({"error": "这条成品对应的素材记录已经不在，请重新上传"}), 404
+        source = Path(task["source_path"])
+        if not source.is_file():
+            return jsonify({"error": "素材已被回收（保留 72 小时），请重新上传这份文件"}), 410
+        raw_regions = data.get("regions")
+        try:
+            regions = normalize_regions(
+                raw_regions if raw_regions is not None else task.get("regions"),
+                owner=task["name"],
+            )
+        except RegionLimitError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not regions:
+            return jsonify({"error": "这份素材还没有选框，请先在画面上框出水印"}), 400
+        task["regions"] = regions
+        task["method"] = method
+        task["video_mode"] = video_mode
+        task["motion"] = motion
+        task["status"] = "processing"
+        task["progress"] = 0.0
+        task["error"] = None
+        task["started"] = False
+        job["status"] = "running"
+        job["progress"] = 0.0
+        job["cancel_requested"] = False
+        job["cancel_event"] = threading.Event()
+        job["finished_at"] = None
+        job["message"] = f"正在重跑：{task['name']}"
+        snapshot = public_job(job)
+    app.logger.info("Job %s rerun requested for %s", job_id, task["name"])
+    threading.Thread(target=_rerun_one, args=(job_id, result_id), daemon=True).start()
+    return jsonify(snapshot)
+
+
 @app.get("/api/jobs/<job_id>/results/<result_id>/preview")
 def result_preview(job_id: str, result_id: str):
     job = get_job(job_id)
@@ -1149,6 +1324,26 @@ def _zip_is_complete(zip_path: Path, names: list[str]) -> bool:
         return False
 
 
+def _zip_is_fresh(zip_path: Path, results: list[dict]) -> bool:
+    """ZIP 必须比每个成品都新。
+
+    单份重跑会覆盖同名成品：条目名一个没变，`_zip_is_complete` 照样认它完整，
+    用户于是下载到旧包。重跑时虽然会尽力删缓存，但 Windows 上刚下载完的文件句柄
+    还没释放时删不掉（`unlink` 只能静默失败），所以判新旧这件事必须由下载这一侧兜住。
+    """
+    try:
+        stamp = zip_path.stat().st_mtime
+    except OSError:
+        return False
+    for result in results:
+        try:
+            if Path(result["file_path"]).stat().st_mtime > stamp:
+                return False
+        except OSError:
+            continue
+    return True
+
+
 def _write_zip(zip_path: Path, results: list[dict], names: list[str]) -> None:
     """先写 .part、关掉后复核可读，再改名替换——避免不可用的 zip 留在 work/zips 里被反复当成品。"""
     part_path = zip_path.with_name(zip_path.name + ".part")
@@ -1184,7 +1379,7 @@ def download_zip(job_id: str):
     ZIP_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = ZIP_DIR / f"{job_id}.zip"
     # 已存在且完整可读的 ZIP 是自成的，成品目录被用户清掉也照样能下载；只有要重打包才需要成品在场
-    if not _zip_is_complete(zip_path, names):
+    if not _zip_is_complete(zip_path, names) or not _zip_is_fresh(zip_path, results):
         missing = [name for name, result in zip(names, results) if not _file_ready(result["file_path"])]
         if missing:
             return jsonify({"error": f"有 {len(missing)} 个成品文件已不在磁盘上，请重新处理这一批"}), 409

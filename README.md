@@ -16,6 +16,7 @@
 - **三种修复方式**：智能纹理修复（默认）／内容填充／照片重绘（本地 LaMa 模型，需另外下载，见下）。
 - **视频**：速度优先 / 画质优先开关（默认画质优先）、动态水印逐帧跟踪、静止水印时序掩膜修复，成品保留可用的音轨与文字字幕。
 - **可中断**：跑到一半能停止，已完成的成品照样保留并可打包；停止后界面逐份列出「还没做完的文件」，并能**继续处理剩下的 N 项**（已完成的不重跑、不散进第二个文件夹）。
+- **单份重跑**：结果卡片上的「重跑这份」会用**当前画面上这份素材的选框**和当前档位重做那一条，覆盖同一个成品文件，同批其他份数逐字节不动；重跑先写临时文件、成功才替换，失败或中途停止时原来那份还在，本批的 ZIP 缓存也会作废重打。
 - **选框模板**：同一版式的素材框一次就够，一键套用全批（最多 10 个模板，只存本浏览器的 localStorage）。
 - **工作区持久**：素材与手画的选框保留 72 小时，关掉浏览器甚至重启服务后还在原处。
 
@@ -92,13 +93,13 @@ PyPI 下载超时时，可以尝试清华镜像。版本同步有延迟，遇到
 
 ```
 $env:PYTHONIOENCODING='utf-8'
-.\.venv\Scripts\python.exe work\qa\_run_all.py            # 核心档 17 个条目，不碰真实语料
+.\.venv\Scripts\python.exe work\qa\_run_all.py            # 核心档 18 个条目，不碰真实语料
 .\.venv\Scripts\python.exe work\qa\_run_all.py --list     # 先看这次会跑什么、环境缺什么
 .\.venv\Scripts\python.exe work\qa\_run_all.py --selftest # 证明这套判据能变红（12 条哨兵）
-.\.venv\Scripts\python.exe work\qa\_run_all.py --all      # 全档 37 个条目（含真实视频与真窗口，很慢）
+.\.venv\Scripts\python.exe work\qa\_run_all.py --all      # 全档 38 个条目（含真实视频与真窗口，很慢）
 ```
 
-入口串行跑 `work\qa\` 下的 26 个脚本（37 个条目，`_real_video.py` 按相位拆开），逐项给出「通过 / 不通过 / 未验 / 跳过 / 指标」，日志与 `manifest.json` 写在 `%TEMP%\jingyin_qa_<时间戳>\`，**不往项目目录里放东西**。退出码：**有不通过 → 1；一条「通过」都没有 → 2；其余 → 0**。
+入口串行跑 `work\qa\` 下的 27 个脚本（38 个条目，`_real_video.py` 按相位拆开），逐项给出「通过 / 不通过 / 未验 / 跳过 / 指标」，日志与 `manifest.json` 写在 `%TEMP%\jingyin_qa_<时间戳>\`，**不往项目目录里放东西**。退出码：**有不通过 → 1；一条「通过」都没有 → 2；其余 → 0**。
 
 三条要认的口径：
 
@@ -106,9 +107,9 @@ $env:PYTHONIOENCODING='utf-8'
 - **未验也不是通过**。脚本自己说「本轮未验」（比如 `_check.py` 语料为空）时入口照实转达。`_check.py` 读的是用户本机上传的页面，**源码包里不带**，图片引擎的主判据是 `_test_image_engine.py`（自合成夹具 + 冻结基线）。
 - **结论只从脚本自己打印的判定行解析**，入口不替脚本编结论；判定行与逐项行数打架、或进程末尾非零退出，一律按不通过算。
 
-需要单独跑某一支时仍然可以直接调脚本，但**前置条件不要照文档数**——`--list` 会当场做环境探测，逐条标出这一支需要什么、这次到底跑不跑。本次量到的分布是 37 个条目里 `http` 13 条、`real`（真实视频语料）10 条、`corpus`（本机上传的页面语料）2 条、`model` 1 条、`electron` 1 条：
+需要单独跑某一支时仍然可以直接调脚本，但**前置条件不要照文档数**——`--list` 会当场做环境探测，逐条标出这一支需要什么、这次到底跑不跑。本次量到的分布是 38 个条目里 `http` 14 条、`real`（真实视频语料）10 条、`corpus`（本机上传的页面语料）2 条、`model` 1 条、`electron` 1 条：
 
-- 需要**服务在跑**（脚本自己从 `work\runtime.json` 读端口）：`_test_workspace`、`_test_robustness`、`_test_instance`、`_test_region_limit`、`_test_photo_mode`、`_test_video_detect`、`_test_video_motion`、`_e2e_video_mode`、`_test_job_cancel`、`_test_job_resume`、`_rerun_batch`、`_run_electron_qa`，以及 `_real_video.py http` 一相。**`_test_video_timeout.py` 不需要服务**——卡死闸门两段（`--unit` 与真 ffmpeg 端到端）全用脚本自合成夹具，一行 HTTP 都没有。
+- 需要**服务在跑**（脚本自己从 `work\runtime.json` 读端口）：`_test_workspace`、`_test_robustness`、`_test_instance`、`_test_region_limit`、`_test_rerun`、`_test_photo_mode`、`_test_video_detect`、`_test_video_motion`、`_e2e_video_mode`、`_test_job_cancel`、`_test_job_resume`、`_rerun_batch`、`_run_electron_qa`，以及 `_real_video.py http` 一相。**`_test_video_timeout.py` 不需要服务**——卡死闸门两段（`--unit` 与真 ffmpeg 端到端）全用脚本自合成夹具，一行 HTTP 都没有。
 - 需要**真实视频语料**（不随包分发，缺了会被标成「跳过」并写明缺哪几份）：`_real_video.py` 的 `detect` / `mode` / `mask` / `motion` / `streams` / `uhd` / `subpic` / `hdr` 各相与 `http` 一相。
 - 需要**本机 Electron**（用环境变量 `JINGYIN_ELECTRON` 指向 `electron.exe`，指不到就跳过界面验收，其余回归不受影响）：`_run_electron_qa.py`，真窗口 107 项。
 - 需要**真实页面语料**（用户本机上传的 `work\uploads\*/*/source.png`，源码包里不带）：`_check.py`、`_cmp_other_tools.py`。这两条缺了就是「跳过」，不算通过。

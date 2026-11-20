@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="app-token" content="{{ app_token }}">
+  <meta name="photo-ready" content="{{ '1' if photo_ready else '0' }}">
+  <meta name="theme-color" content="#17332d">
+  <title>净印 · 批量去水印</title>
+  <script>
+    // 直接双击模板文件只会看到未渲染的标记，给一句能照做的提示
+    if (location.protocol === 'file:') {
+      document.documentElement.innerHTML =
+        '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f2efe8;color:#1d2b27;font-family:\'Microsoft YaHei\',sans-serif">' +
+        '<div style="max-width:520px;padding:36px 40px;background:#fffdf9;border:1px solid #e0d9ce;border-radius:18px;line-height:1.8">' +
+        '<h1 style="margin:0 0 12px;font-size:20px">请用启动器打开</h1>' +
+        '<p style="margin:0 0 8px">这是网页模板文件，不是工具本体。</p>' +
+        '<p style="margin:0">双击桌面上的 <b>去水印工具</b>，或目录里的 <b>启动去水印工具.bat</b>。</p>' +
+        '</div></body>';
+    }
+  </script>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" fill="none">
+            <path d="M20 7.5c4.8 5.5 8.1 9.7 8.1 14.4A8.1 8.1 0 0 1 20 30a8.1 8.1 0 0 1-8.1-8.1c0-4.7 3.3-8.9 8.1-14.4Z" fill="currentColor" opacity=".95"/>
+            <path d="M16 22.4c.4 2 1.8 3.2 3.8 3.4" stroke="#17332d" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="m27.2 9.3.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" fill="#ffd9a0"/>
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <strong>净印</strong>
+          <small>图片与视频</small>
+        </span>
+      </div>
+      <div class="topbar-actions">
+        <span class="privacy-chip">
+          <span class="privacy-dot"></span>
+          只在本机处理，文件不外传
+        </span>
+        <button class="ghost-button" id="jobChip" type="button" hidden>
+          <span class="mini-spinner" id="jobChipSpinner"></span>
+          <span id="jobChipText">处理中</span>
+        </button>
+        <button class="ghost-button" id="helpBtn" type="button">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="7.2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M7.9 7.8a2.2 2.2 0 0 1 4.3.7c0 1.5-2.2 1.6-2.2 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="10" cy="14" r=".9" fill="currentColor"/>
+          </svg>
+          使用说明
+        </button>
+        <button class="icon-button" id="shutdownBtn" type="button" title="关闭工具" aria-label="关闭工具">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 3.2v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M6.3 5.6a6.3 6.3 0 1 0 7.4 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel library-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">素材</span>
+            <h2>待处理文件</h2>
+          </div>
+          <span class="count-badge" id="fileCount">0</span>
+        </div>
+
+        <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="添加图片或视频">
+          <span class="drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 28 28" fill="none">
+              <path d="M14 18.5V7.8m0 0-4 4m4-4 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6.2 17.3v2.3c0 1.2 1 2.2 2.2 2.2h11.2c1.2 0 2.2-1 2.2-2.2v-2.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <strong>拖入文件，或点击添加</strong>
+          <span>支持一次选择多张图片 / 多个视频</span>
+          <em>JPG · PNG · WebP · MP4 · MOV 等</em>
+          <input id="fileInput" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.mp4,.m4v,.mov,.webm,.mkv,.avi" hidden>
+        </div>
+        <div class="drop-tools">
+          <button class="small-button" id="pickFilesBtn" type="button">选择文件</button>
+          <button class="small-button" id="pickFolderBtn" type="button">选择文件夹</button>
+          <input id="folderInput" type="file" webkitdirectory multiple hidden>
+        </div>
+
+        <div class="upload-status" id="uploadStatus" hidden>
+          <div class="upload-status-row">
+            <span id="uploadText">正在上传</span>
+            <span id="uploadPercent">0%</span>
+          </div>
+          <div class="upload-track"><span id="uploadBar"></span></div>
+        </div>
+
+        <div class="list-toolbar">
+          <label class="check-label">
+            <input type="checkbox" id="checkAll" checked>
+            <span class="custom-check"></span>
+            全选
+          </label>
+          <button class="text-button" id="clearFilesBtn" type="button">清空素材</button>
+        </div>
+
+        <div class="file-list-wrap">
+          <ul class="file-list" id="fileList"></ul>
+          <div class="list-empty" id="fileListEmpty">
+            <span>还没有素材</span>
+            <small>添加后会自动生成缩略图</small>
+          </div>
+        </div>
+
+        <div class="library-footer">
+          <span>已勾选 <strong id="checkedCount">0</strong> 项</span>
+          <span class="footer-note">批量处理会跳过未框选的文件</span>
+        </div>
+      </aside>
+
+      <section class="panel stage-panel">
+        <div class="stage-head">
+          <div class="current-media">
+            <span class="kind-badge" id="currentKindBadge" hidden>图片</span>
+            <div class="current-copy">
+              <h1 id="currentName">还没有选择文件</h1>
+              <p id="currentMeta">选中素材后显示尺寸与时长</p>
+            </div>
+          </div>
+          <div class="stage-actions">
+            <button class="secondary-button" id="autoDetectBtn" type="button" disabled>
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="m10 2.8.9 3.1 3.1.9-3.1.9-.9 3.1-.9-3.1-3.1-.9 3.1-.9.9-3.1Z" fill="currentColor"/>
+                <path d="m15.2 11.7.5 1.6 1.6.5-1.6.5-.5 1.6-.5-1.6-1.6-.5 1.6-.5.5-1.6Z" fill="currentColor" opacity=".7"/>
+                <path d="m4.2 11.1.5 1.6 1.6.5-1.6.5-.5 1.6-.5-1.6-1.6-.5 1.6-.5.5-1.6Z" fill="currentColor" opacity=".5"/>
+              </svg>
+              <span>自动找水印</span>
+            </button>
+            <button class="secondary-button" id="undoRegionBtn" type="button" disabled>
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M7.3 6.3 3.9 9.7l3.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M4.2 9.7h6.6a5 5 0 0 1 5 5v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+              撤销选框
+            </button>
+          </div>
+        </div>
+
+        <div class="stage-area" id="stageArea">
+          <div class="stage-empty" id="stageEmpty">
+            <div class="empty-illustration" aria-hidden="true">
+              <div class="paper-card paper-back"></div>
+              <div class="paper-card paper-front">
+                <span class="paper-sun"></span>
+                <span class="paper-hill hill-one"></span>
+                <span class="paper-hill hill-two"></span>
+                <span class="paper-watermark">AI 生成</span>
+                <span class="paper-scan"></span>
+              </div>
+              <div class="clean-check">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="m6.5 12.2 3.4 3.4 7.6-7.6" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
+            <h3>添加素材，框住水印</h3>
+            <p>一次最多 120 份，图片和视频可以混着加。</p>
+            <button class="primary-button compact" id="emptyAddBtn" type="button">
+              添加第一份素材
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M5 10h10m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="stage-spacer" id="stageSpacer" hidden>
+            <div class="media-frame" id="mediaFrame">
+              <img id="previewImage" alt="当前素材预览" draggable="false" hidden>
+              <video id="previewVideo" playsinline preload="metadata" hidden></video>
+              <div class="video-fallback" id="videoFallback" hidden>
+                <img id="posterImage" alt="视频封面" draggable="false">
+              </div>
+              <canvas id="overlayCanvas" aria-label="在画面上拖拽框选水印"></canvas>
+              <div class="draw-hint" id="drawHint">按住拖拽框住水印</div>
+            </div>
+          </div>
+
+          <div class="stage-loading" id="stageLoading" hidden>
+            <span class="loading-ring"></span>
+            <span>正在准备预览</span>
+          </div>
+        </div>
+
+        <div class="video-controls" id="videoControls" hidden>
+          <button class="video-play" id="videoPlayBtn" type="button" aria-label="播放">
+            <svg class="play-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7.2 5.7v8.6l7.2-4.3-7.2-4.3Z" fill="currentColor"/></svg>
+            <svg class="pause-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true" hidden><path d="M6.5 5.5h2.6v9H6.5v-9Zm4.4 0h2.6v9h-2.6v-9Z" fill="currentColor"/></svg>
+          </button>
+          <span class="video-time" id="videoTime">0:00 / 0:00</span>
+          <input class="video-seek" id="videoSeek" type="range" min="0" max="100" step="0.01" value="0" aria-label="视频进度">
+          <button class="video-step" id="videoBackBtn" type="button" title="后退 0.1 秒">−0.1s</button>
+          <button class="video-step" id="videoForwardBtn" type="button" title="前进 0.1 秒">+0.1s</button>
+        </div>
+
+        <div class="stage-foot">
+          <div class="foot-hint">
+            <span class="crosshair-mini" aria-hidden="true"></span>
+            可框多处，拖动边角能调整大小
+          </div>
+          <div class="zoom-tools" id="zoomTools" hidden>
+            <button type="button" class="zoom-button" id="zoomOutBtn" aria-label="缩小">−</button>
+            <span id="zoomLabel">适配</span>
+            <button type="button" class="zoom-button" id="zoomInBtn" aria-label="放大">＋</button>
+            <button type="button" class="fit-button" id="zoomFitBtn">适配窗口</button>
+          </div>
+        </div>
+        <div class="video-preview-note" id="videoErrorNote" hidden>
+          这个视频在浏览器里放不了，已改用封面图；框选和处理不受影响。
+        </div>
+      </section>
+
+      <aside class="panel settings-panel">
+        <div class="settings-head">
+          <div>
+            <span class="eyebrow">处理设置</span>
+            <h2>去水印</h2>
+          </div>
+        </div>
+
+        <section class="setting-block">
+          <div class="block-title">
+            <h3>修复方式</h3>
+            <button class="help-inline" id="methodHelpBtn" type="button" aria-label="修复方式说明">?</button>
+          </div>
+          <div class="method-list">
+            <label class="method-card is-selected" data-method="smart">
+              <input type="radio" name="method" value="smart" checked>
+              <span class="method-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M5.5 18.5 8 13l5.5-2.5L16 5l2.5 5.5L24 13l-5.5 2.5L16 21l-2.5-5.5L8 13" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" transform="scale(.82) translate(2 1)"/>
+                  <path d="M7 5.5v3M5.5 7h3M17.5 16v2.5m-1.25-1.25h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="method-copy">
+                <strong>智能纹理修复</strong>
+                <small>借用周边纹理补全，适合纸张、草地和重复纹理</small>
+              </span>
+              <span class="radio-dot"></span>
+            </label>
+            <label class="method-card" data-method="inpaint">
+              <input type="radio" name="method" value="inpaint">
+              <span class="method-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M4.5 16.5c4-5.5 6.5-5 8-.5s3.5 4.2 7-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                  <path d="M5 7.5h5M7.5 5v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <circle cx="18" cy="6" r="1.2" fill="currentColor"/>
+                </svg>
+              </span>
+              <span class="method-copy">
+                <strong>内容填充</strong>
+                <small>用周围颜色平滑补全，适合简单干净的背景</small>
+              </span>
+              <span class="radio-dot"></span>
+            </label>
+            <label class="method-card" data-method="photo" id="photoMethodCard">
+              <input type="radio" name="method" value="photo">
+              <span class="method-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect x="4" y="5.5" width="16" height="13" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="9" cy="10.5" r="1.6" stroke="currentColor" stroke-width="1.3"/>
+                  <path d="m5.5 17 4.2-4.2 3 3 2.6-2.6 3.2 3.8" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="method-copy">
+                <strong>照片重绘</strong>
+                <small>本地模型重绘选区，适合照片、插画上的 logo；文字页面请用智能纹理修复</small>
+              </span>
+              <span class="radio-dot"></span>
+            </label>
+          </div>
+          <p class="method-note">下面两个开关只影响视频。</p>
+          <p class="method-note" id="videoHdrNote">HDR 视频请先转成 SDR。本工具不做色调映射，输出为 8bit，亮度和颜色可能异常；识别到 HDR 会在成品的说明里注明。</p>
+          <label class="video-switch" for="videoFastMode">
+            <input type="checkbox" id="videoFastMode">
+            <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+            <span class="switch-copy">
+              <strong>视频速度优先</strong>
+              <small>默认画质优先，贴边台标逐帧修复。打开后改走画面内插值，快约 3–4 倍；哪档更干净随素材变化，建议各试一次。</small>
+            </span>
+          </label>
+          <label class="video-switch" for="videoMotion">
+            <input type="checkbox" id="videoMotion">
+            <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+            <span class="switch-copy">
+              <strong>动态水印（跟着画面移动）</strong>
+              <small>台标跟着画面移动时打开：每帧重新定位选框，比固定框慢，不与速度优先同时生效。静止台标别开。</small>
+            </span>
+          </label>
+        </section>
+
+        <section class="setting-block region-block">
+          <div class="block-title">
+            <h3>水印选框 <span class="inline-count" id="regionCount">0</span></h3>
+            <button class="text-button" id="clearRegionsBtn" type="button">清空</button>
+          </div>
+          <div class="mini-empty" id="regionEmpty">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 8V6.5A1.5 1.5 0 0 1 6.5 5H8m8 0h1.5A1.5 1.5 0 0 1 19 6.5V8m0 8v1.5a1.5 1.5 0 0 1-1.5 1.5H16M8 19H6.5A1.5 1.5 0 0 1 5 17.5V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M9 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            还没有选框
+          </div>
+          <ul class="region-list" id="regionList"></ul>
+          <button class="apply-button" id="applyAllBtn" type="button" disabled>
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <rect x="3.2" y="3.2" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+              <rect x="9.8" y="9.8" width="7" height="7" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M12.5 3.5h2.8a1.5 1.5 0 0 1 1.5 1.5v2.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <span>把选框套用到已勾选素材</span>
+          </button>
+          <p class="helper-text">按画面比例套用，会替换这些素材上原有的选框。</p>
+        </section>
+
+        <section class="setting-block template-block" id="templateBlock" hidden>
+          <div class="block-title">
+            <h3>选框模板 <span class="inline-count" id="templateCount">0</span></h3>
+            <button class="text-button" id="saveTemplateBtn" type="button" disabled>存为模板</button>
+          </div>
+          <p class="helper-text">按画面比例对齐；只补缺的框，不覆盖已画的。</p>
+          <ul class="template-list" id="templateList"></ul>
+        </section>
+
+        <section class="setting-block suggestion-block" id="suggestionBlock" hidden>
+          <div class="block-title">
+            <h3>疑似水印 <span class="inline-count" id="suggestionCount">0</span></h3>
+            <button class="text-button" id="suggestionClearBtn" type="button">全部忽略</button>
+          </div>
+          <p class="suggestion-note">疑似，请核对：低对比水印把握不大，虚线框要采纳后才生效。</p>
+          <ul class="suggestion-list" id="suggestionList"></ul>
+        </section>
+
+        <section class="setting-block batch-block">
+          <div class="selection-summary">
+            <div>
+              <span>准备处理</span>
+              <strong><span id="batchReady">0</span> 项</strong>
+            </div>
+            <span class="skip-note" id="batchSkipped"></span>
+          </div>
+          <button class="primary-button process-button" id="processBtn" type="button" disabled>
+            <span id="processBtnLabel">开始批量处理</span>
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M5 10h10m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <p class="footnote" id="processHint">先在画面上框住水印</p>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="helpModal" hidden>
+    <div class="modal-card help-modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">三步完成</span>
+          <h2 id="helpTitle">怎么用</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" data-close="helpModal" aria-label="关闭">
+          <svg viewBox="0 0 20 20" fill="none"><path d="m5.5 5.5 9 9m0-9-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="help-steps">
+        <div class="help-step">
+          <span class="step-number">01</span>
+          <div><h3>添加图片或视频</h3><p>一次可选多份，也可以直接选整个文件夹。</p></div>
+        </div>
+        <div class="help-step">
+          <span class="step-number">02</span>
+          <div><h3>框出水印</h3><p>在画面上拖拽，可框多处；角落白字可以先点「自动找水印」。</p></div>
+        </div>
+        <div class="help-step">
+          <span class="step-number">03</span>
+          <div><h3>套用并批量处理</h3><p>固定位置的水印用「把选框套用到已勾选素材」，再点「开始批量处理」。成品在工具目录的「成品」文件夹。</p></div>
+        </div>
+      </div>
+      <div class="help-notes">
+        <h3>几点说明</h3>
+        <div class="note-grid">
+          <div><strong>视频水印</strong><p>自动识别按全片抽 5–9 帧，只出现一段的台标也能找到；只在抽查点之间闪现的仍需手动补框。贴边台标默认逐帧修复，速度优先快约 3–4 倍，建议拿片子各试一次。台标跟着画面移动时打开「动态水印」，逐帧重新定位，耗时更长。</p></div>
+          <div><strong>声音与字幕</strong><p>成品带原音轨，放不进 MP4 时才转 AAC；文本字幕（srt / ass）保留，图形字幕（蓝光、DVD）转不了文本，会略过。</p></div>
+          <div><strong>HDR 视频</strong><p>本工具不做 HDR→SDR 色调映射，输出为 8bit，亮度和颜色可能异常。请先用支持色调映射的工具转成 SDR；识别到 HDR（smpte2084 / arib-std-b67）时会在成品说明里注明。</p></div>
+          <div><strong>照片重绘</strong><p>照片、插画上的 logo 压着人脸或连续纹理时，用本机模型重绘选框里的内容；首次选中要等模型加载约 20 秒。文字页面别用，会把字一起抹掉。</p></div>
+          <div><strong>无法凭空还原</strong><p>水印盖住人脸、文字主体或独占物体时，局部修补一定会留痕迹，建议重新出图。</p></div>
+          <div><strong>中断与恢复</strong><p>素材和手画的框保留 72 小时，关掉浏览器或重启工具后还在；正在跑的那一批不恢复。跑到一半可以「停止这一批」，已完成的成品保留；点「继续处理剩下的 N 项」会接着跑这些（连同处理失败的那几份一起补），已完成的不会重跑。</p></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <span class="help-tip">快捷键：Esc 关闭窗口 · 空格播放 / 暂停视频</span>
+        <button class="primary-button compact" type="button" data-close="helpModal">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="methodModal" hidden>
+    <div class="modal-card small-modal" role="dialog" aria-modal="true" aria-labelledby="methodTitle">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">修复方式</span>
+          <h2 id="methodTitle">该选哪一个？</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" data-close="methodModal" aria-label="关闭">
+          <svg viewBox="0 0 20 20" fill="none"><path d="m5.5 5.5 9 9m0-9-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="compare-explain">
+        <div class="explain-row">
+          <span class="explain-badge jade">纹理</span>
+          <div><h3>智能纹理修复</h3><p>从水印旁边取干净纹理补上，适合纸张、草地、树叶、墙面；选框贴着水印画，别圈进太多主体。</p></div>
+        </div>
+        <div class="explain-row">
+          <span class="explain-badge sand">填充</span>
+          <div><h3>内容填充</h3><p>周围没有足够纹理可取样时用这张卡片，按邻近颜色平滑补全；纯色背景、天空、墙面最合适，纹理复杂时会发糊。</p></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="primary-button compact" type="button" data-close="methodModal">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop job-backdrop" id="jobModal" hidden>
+    <div class="modal-card job-modal" role="dialog" aria-modal="true" aria-labelledby="jobTitle">
+      <div class="modal-head job-head">
+        <div class="job-status-icon" id="jobStatusIcon">
+          <span class="loading-ring"></span>
+        </div>
+        <div class="job-heading">
+          <h2 id="jobTitle">正在去水印</h2>
+          <p id="jobMessage">正在准备这一批素材。</p>
+        </div>
+        <button class="icon-button modal-close" id="jobCloseBtn" type="button" aria-label="收起进度" title="收起进度">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M5 10h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <section class="job-progress-section" id="jobProgressSection">
+        <div class="progress-meta">
+          <span id="jobStats">0 / 0</span>
+          <strong id="jobPercent">0%</strong>
+        </div>
+        <div class="progress-track"><span id="jobBar"></span></div>
+        <ul class="task-progress-list" id="taskProgressList"></ul>
+        <div class="job-cancel-row" id="jobCancelRow">
+          <button class="secondary-button" id="jobCancelBtn" type="button">停止这一批</button>
+          <span class="job-cancel-note">停止后已完成的成品仍可下载</span>
+        </div>
+        <p class="job-footnote">收起窗口后任务仍在后台继续。</p>
+      </section>
+
+      <section class="results-section" id="resultsSection" hidden>
+        <div class="result-summary">
+          <div>
+            <h3 id="resultSummary">共生成 0 个文件</h3>
+          </div>
+          <span class="result-stats" id="resultStats"></span>
+        </div>
+        <div class="output-path-row">
+          <div class="output-path">
+            <span>成品位置</span>
+            <code id="outputPathText">—</code>
+          </div>
+          <button class="copy-button" id="copyPathBtn" type="button">复制路径</button>
+        </div>
+        <div class="result-grid" id="resultGrid"></div>
+        <div class="modal-actions job-actions">
+          <button class="secondary-button" id="openFolderBtn" type="button">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M3.2 6.5c0-.8.6-1.4 1.4-1.4h3l1.3 1.5h6.5c.8 0 1.4.6 1.4 1.4v6.3c0 .8-.6 1.4-1.4 1.4H4.6c-.8 0-1.4-.6-1.4-1.4V6.5Z" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            打开成品文件夹
+          </button>
+          <a class="primary-button compact" id="zipDownloadBtn" href="#" download>
+            打包下载全部
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M10 3.5v9m0 0 3.5-3.5M10 12.5 6.5 9M4 15.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+          <button class="text-button results-close" id="closeResultsBtn" type="button">继续处理</button>
+        </div>
+      </section>
+
+      <div class="job-resume-row" id="jobResumeRow" hidden>
+        <button class="primary-button compact" id="jobResumeBtn" type="button">继续处理剩下的 0 项</button>
+        <span class="job-cancel-note">要点一下才会接着跑；已完成的不会重做，成品仍在同一个文件夹。</span>
+      </div>
+
+      <section class="job-stopped" id="jobStoppedSection" hidden>
+        <h3>还没做完的文件</h3>
+        <ul id="jobStoppedList"></ul>
+        <p class="job-stopped-note">这些文件没有出成品；上面的「继续处理剩下的 N 项」会把它们和「需要你看一下」里失败的那几份一起补。</p>
+      </section>
+
+      <section class="job-failed" id="jobFailedSection" hidden>
+        <h3>需要你看一下的文件</h3>
+        <ul id="jobFailedList"></ul>
+      </section>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="viewerModal" hidden>
+    <div class="modal-card viewer-modal" role="dialog" aria-modal="true" aria-labelledby="viewerTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="viewerTitle">对比</h2>
+        </div>
+        <button class="icon-button modal-close" type="button" data-close="viewerModal" aria-label="关闭">
+          <svg viewBox="0 0 20 20" fill="none"><path d="m5.5 5.5 9 9m0-9-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="viewer-body" id="viewerBody"></div>
+      <div class="modal-actions">
+        <span class="viewer-note">← → 切换文件 · Esc 关闭</span>
+        <div class="viewer-pager" id="viewerPager" hidden>
+          <button class="pager-btn" type="button" id="viewerPrevBtn" aria-label="上一个文件">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="pager-count" id="viewerPageText">1 / 1</span>
+          <button class="pager-btn" type="button" id="viewerNextBtn" aria-label="下一个文件">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <a class="primary-button compact" id="viewerDownloadBtn" href="#" download>下载这个文件</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal-card confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="confirm-icon" id="confirmIcon">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 8.2v5.4M12 17.2v.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <h2 id="confirmTitle">确认操作</h2>
+      <p id="confirmMessage"></p>
+      <div class="modal-actions confirm-actions">
+        <button class="secondary-button" id="confirmCancelBtn" type="button">取消</button>
+        <button class="primary-button compact" id="confirmOkBtn" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="drop-overlay" id="dropOverlay" hidden>
+    <div class="drop-overlay-inner">
+      <span class="drop-overlay-icon">
+        <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <path d="M24 33V13m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 30v4a4 4 0 0 0 4 4h20a4 4 0 0 0 4-4v-4" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <strong>松手就添加</strong>
+      <span>图片和视频都可以</span>
+    </div>
+  </div>
+
+  <div class="closed-screen" id="closedScreen" hidden>
+    <div class="closed-card">
+      <span class="closed-mark">净印</span>
+      <h1>工具已经关闭</h1>
+      <p>本地服务已停，可以关掉这个标签页。下次双击「启动去水印工具」再打开。</p>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

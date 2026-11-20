@@ -69,6 +69,7 @@ PyPI 下载超时时，可以尝试清华镜像。版本同步有延迟，遇到
 | `remover/` | 引擎：`options.py` 三组修复选项的唯一口径、`detection.py` 定位、`image_ops.py` 图片修复、`video_ops.py` 视频修复、`media.py` 解码落盘、`batch_runner.py` 并行、`cancel.py` 取消协议、`state_store.py` 工作区持久化、`photo_inpaint.py` 照片重绘、`detection_lowcontrast.py` 低对比候选 |
 | `templates\index.html` + `static\` | 单页界面（原生 JS，无框架）与内嵌使用说明 |
 | `work\qa\` | 回归脚本、基线和统一入口 `_run_all.py`。核心档主要使用合成夹具，部分脚本另有真实页面检查；真实视频语料按需准备 |
+| `.github\workflows\qa.yml` | CI：推送到 `main` 时在 Windows 上起服务跑核心档，失败时上传回归日志 |
 | `启动去水印工具.bat` | 诊断启动器（带运行环境自检与真探活） |
 
 ## 已知边界（如实写在这里）
@@ -84,6 +85,8 @@ PyPI 下载超时时，可以尝试清华镜像。版本同步有延迟，遇到
 - **HDR 视频暂不做 HDR→SDR 色调映射，输出为 8bit，亮度和颜色可能异常**。建议先用支持色调映射的工具转成 SDR，再去水印。识别看画面流的色彩标记（`color_transfer`）：认出 `smpte2084` / `arib-std-b67` 就在成品说明里写明这条，认不出不写，不按 `bt2020` 色域猜。现有 PQ（smpte2084）样本中，`fast`/`delogo` 保留 HDR 色彩标记，`quality` 逐帧重编码丢失这些标记；保留标记不等于保留 HDR 画质。BT.2020 仅表示色域，不能单凭它判断 HDR。样本验证见 `work\qa\_real_video.py hdr`，不代表所有 HDR 素材的效果。
 
 ## 回归测试
+
+推送到 `main` 时 GitHub Actions 会在 Windows 上装依赖、起服务、跑核心档（`.github/workflows/qa.yml`），失败时把日志作为构建产物上传。本地跑法如下。
 
 使用已安装项目依赖的虚拟环境解释器，并设 `PYTHONIOENCODING=utf-8`。默认只跑核心档，`--all` 才选择全部档位（按 PowerShell 写法）：
 

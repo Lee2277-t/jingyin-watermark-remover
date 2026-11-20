@@ -1,5 +1,7 @@
 # 净印 · 批量去水印工具
 
+[![QA](https://github.com/Lee2277-t/jingyin-watermark-remover/actions/workflows/qa.yml/badge.svg)](https://github.com/Lee2277-t/jingyin-watermark-remover/actions/workflows/qa.yml)
+
 在 Windows 上批量处理图片和视频水印。安装后通过浏览器操作，素材和成品留在本机。请选择自己拥有或获准处理的素材。
 
 ![净印界面，已添加图片和视频并框选水印](assets/demo-workspace.webp)

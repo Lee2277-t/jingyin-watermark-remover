@@ -130,4 +130,4 @@ $env:PYTHONIOENCODING='utf-8'
 
 ## 许可证
 
-本项目采用 **MIT 许可证**，全文见 [LICENSE](LICENSE)，署名行是 `Copyright (c) 2026 LeeConstantine`。该文件末尾另附两段：第三方组件清单（opencv-python-headless / Pillow / numpy / Flask·Werkzeug / imageio-ffmpeg / onnxruntime，各自仍归原作者、按各自许可证分发）与一句模型权重说明——`models/lama_fp32.onnx` 不是本项目产物，不随源码分发。
+本项目采用 **AGPL-3.0-only 许可证**，全文见 [LICENSE](LICENSE)，署名行是 `Copyright (c) 2026 LeeConstantine`。该文件末尾另附两段：第三方组件清单（opencv-python-headless / Pillow / numpy / Flask·Werkzeug / imageio-ffmpeg / onnxruntime，各自仍归原作者、按各自许可证分发）与一句模型权重说明——`models/lama_fp32.onnx` 不是本项目产物，不随源码分发。
